@@ -1,21 +1,9 @@
-pragma circom 2.0.2;
+include "./bsc.circom";
+include "./util.circom";
 
 include "../node_modules/circomlib/circuits/poseidon.circom";
 
-include "./eth.circom";
-include "./util.circom";
-
-// blockHash
-// chainId
-// tx index
-// source sender
-// dest receiver
-// token address
-// value
-// nullifier [secret]
-// nullifierHash
-
-template DepositProof(maxDepth, maxIndex, maxTxRlpHexLen) {
+template BscDepositProof(maxDepth, maxIndex, maxTxRlpHexLen) {
     var maxLeafRlpHexLen = 4 + (6 + 2) + 4 + maxTxRlpHexLen;
     var maxBranchRlpHexLen = 1064;
 
@@ -71,18 +59,17 @@ template DepositProof(maxDepth, maxIndex, maxTxRlpHexLen) {
     tx_pf.blockHash[1] <== blockHash[1];
     tx_pf.index <== txIdx;
     
-    for (var idx = 0; idx < 1112; idx++) {
+    for (var idx = 0; idx < 1112; idx++) 
         tx_pf.blockRlpHexs[idx] <== blockRlpHexs[idx];
-    }
-    for (var idx = 0; idx < maxTxRlpHexLen; idx++) {
+    
+    for (var idx = 0; idx < maxTxRlpHexLen; idx++) 
 	    tx_pf.txRlpHexs[idx] <== txRlpHexs[idx];
-    }
-    for (var idx = 0; idx < maxDepth; idx++) {
+    
+    for (var idx = 0; idx < maxDepth; idx++) 
 	    tx_pf.keyFragmentStarts[idx] <== keyFragmentStarts[idx];
-    }
-    for (var idx = 0; idx < maxLeafRlpHexLen; idx++) {
+    
+    for (var idx = 0; idx < maxLeafRlpHexLen; idx++) 
 	    tx_pf.leafRlpHexs[idx] <== leafRlpHexs[idx];
-    }
 
     tx_pf.leafPathPrefixHexLen <== leafPathPrefixHexLen;
     
@@ -143,9 +130,9 @@ template DepositProof(maxDepth, maxIndex, maxTxRlpHexLen) {
 
     // check preimage of commitment
     temp = 0;
-    for (var i = 136; i < 200; i++) {
+    for (var i = 136; i < 200; i++) 
         temp = temp + tx_pf.dataHexs[i] * (16 ** (199 - i));
-    }
+    
     log(14321993);
     log(temp);
 
@@ -156,19 +143,3 @@ template DepositProof(maxDepth, maxIndex, maxTxRlpHexLen) {
     commitmentHasher.out === temp;
 }
 
-// signal input value;
-// signal input sender;
-// signal input receiver;
-// signal input tokenAddress;
-// signal input blockHash[2];
-// signal input nullifierHash;
-
-component main {
-    public [
-        token,
-        value,
-        receiver, 
-        blockHash, 
-        nullifierHash
-    ]
-} = DepositProof(6, 500, 15000);

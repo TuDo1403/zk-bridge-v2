@@ -26,9 +26,13 @@ template EthBlockHashHex() {
         log(blockRlpHexs[idx]);
     }
 
-    component rlp = RlpArrayCheck(1112, 16, 4,
-        	      	    	  [64, 64, 40, 64, 64, 64, 512,  0, 0, 0, 0, 0,  0, 64, 16,  0],
-				  [64, 64, 40, 64, 64, 64, 512, 14, 6, 8, 8, 8, 64, 64, 18, 10]);
+    component rlp = RlpArrayCheck(
+        1112, 
+        16, 
+        4,	      	    	  
+        [64, 64, 40, 64, 64, 64, 512,  0, 0, 0, 0, 0,  0, 64, 16,  0],
+		[64, 64, 40, 64, 64, 64, 512, 14, 6, 8, 8, 8, 64, 64, 18, 10]
+    );
     for (var idx = 0; idx < 1112; idx++) {
     	rlp.in[idx] <== blockRlpHexs[idx];
     }
@@ -56,7 +60,7 @@ template EthBlockHashHex() {
     out <== rlp.out;
     for (var idx = 0; idx < 32; idx++) {
         blockHashHexs[2 * idx] <== keccak.out[2 * idx + 1];
-	blockHashHexs[2 * idx + 1] <== keccak.out[2 * idx];
+	    blockHashHexs[2 * idx + 1] <== keccak.out[2 * idx];
     }
     for (var idx = 0; idx < 64; idx++) {
     	stateRoot[idx] <== rlp.fields[3][idx];
@@ -367,10 +371,10 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
     component blockHashN2b[2];
     for (var idx = 0; idx < 2; idx++) {
     	blockHashN2b[idx] = Num2Bits(128);
-	blockHashN2b[idx].in <== blockHash[idx];
-	for (var j = 0; j < 32; j++) {
-	    blockHashHexs[32 * idx + j] <== 8 * blockHashN2b[idx].out[4 * (31 - j) + 3] + 4 * blockHashN2b[idx].out[4 * (31 - j) + 2] + 2 * blockHashN2b[idx].out[4 * (31 - j) + 1] + blockHashN2b[idx].out[4 * (31 - j)];
-	}
+	    blockHashN2b[idx].in <== blockHash[idx];
+        for (var j = 0; j < 32; j++) {
+            blockHashHexs[32 * idx + j] <== 8 * blockHashN2b[idx].out[4 * (31 - j) + 3] + 4 * blockHashN2b[idx].out[4 * (31 - j) + 2] + 2 * blockHashN2b[idx].out[4 * (31 - j) + 1] + blockHashN2b[idx].out[4 * (31 - j)];
+        }
     }
 
     // validate index
@@ -381,13 +385,13 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
     // match block hash 
     component block_hash = EthBlockHashHex();
     for (var idx = 0; idx < 1112; idx++) {
-	block_hash.blockRlpHexs[idx] <== blockRlpHexs[idx];
+	    block_hash.blockRlpHexs[idx] <== blockRlpHexs[idx];
     }
 
     component block_hash_check = ArrayEq(64);
     for (var idx = 0; idx < 64; idx++) {
-	block_hash_check.a[idx] <== block_hash.blockHashHexs[idx];
-	block_hash_check.b[idx] <== blockHashHexs[idx];
+        block_hash_check.a[idx] <== block_hash.blockHashHexs[idx];
+        block_hash_check.b[idx] <== blockHashHexs[idx];
     }
     block_hash_check.inLen <== 64;
 
@@ -404,17 +408,27 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
 
     // check tx info is properly formatted
     var maxArrayPrefix1HexLen = 2 * (log_ceil(maxTxRlpHexLen) \ 8 + 1);
-    component rlp0 = RlpArrayCheck(maxTxRlpHexLen, 9, maxArrayPrefix1HexLen,
-        	      	           [ 0,   0, 0, 40, 0, 0, 0, 64, 64],
-				   [64, 64, 64, 40, 64, maxTxRlpHexLen - 170, 2, 64, 64]);
+    component rlp0 = RlpArrayCheck(
+        maxTxRlpHexLen, 
+        9, 
+        maxArrayPrefix1HexLen,
+        [0, 0, 0, 40, 0, 0, 0, 64, 64],
+		[64, 64, 64, 40, 64, maxTxRlpHexLen - 170, 2, 64, 64]
+    );
+
     for (var idx = 0; idx < maxTxRlpHexLen; idx++) {
         rlp0.in[idx] <== (1 - txType) * txRlpHexs[idx];
     }
 
     // assume access list is empty
-    component rlp2 = RlpArrayCheck(maxTxRlpHexLen - 2, 12, maxArrayPrefix1HexLen,
-        	      	           [0,  0,  0,  0,  0, 40,  0,                    0, 0, 0, 64, 64],
-				   [2, 64, 64, 64, 64, 40, 64, maxTxRlpHexLen - 172, 0, 2, 64, 64]);
+    component rlp2 = RlpArrayCheck(
+        maxTxRlpHexLen - 2, 
+        12, 
+        maxArrayPrefix1HexLen,
+        [0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 64, 64],
+		[2, 64, 64, 64, 64, 40, 64, maxTxRlpHexLen - 172, 0, 2, 64, 64]
+    );
+
     for (var idx = 0; idx < maxTxRlpHexLen - 2; idx++) {
         rlp2.in[idx] <== txType * txRlpHexs[idx + 2];
     }
@@ -460,8 +474,9 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
 
     chainIdHexLen <== rlp2.fieldHexLen[0];
     maxPriorityFeeHexLen <== rlp2.fieldHexLen[2];
+
     for (var idx = 0; idx < 2; idx++) {
-	chainIdHexs[idx] <== rlp2.fields[0][idx];
+	    chainIdHexs[idx] <== rlp2.fields[0][idx];
     }
     for (var idx = 0; idx < 64; idx++) {
         maxPriorityFeeHexs[idx] <== rlp2.fields[2][idx];
@@ -507,14 +522,14 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
     // validate MPT inclusion
     component mpt = MPTInclusionNoBranchTermination(maxDepth, 6, maxTxRlpHexLen);
     for (var idx = 0; idx < 6; idx++) {
-	mpt.keyHexs[idx] <== rlpIndexHexs[idx];
+	    mpt.keyHexs[idx] <== rlpIndexHexs[idx];
     }
     mpt.keyHexLen <== rlpIndexHexLen;
     for (var idx = 0; idx < maxTxRlpHexLen; idx++) {
-	mpt.valueHexs[idx] <== txRlpHexs[idx];
+	    mpt.valueHexs[idx] <== txRlpHexs[idx];
     }
     for (var idx = 0; idx < 64; idx++) {
-	mpt.rootHashHexs[idx] <== block_hash.transactionsRoot[idx];
+	    mpt.rootHashHexs[idx] <== block_hash.transactionsRoot[idx];
     }
 
     for (var idx = 0; idx < maxDepth; idx++) {
@@ -523,14 +538,14 @@ template EthTransactionProofCore(maxDepth, maxIndex, maxTxRlpHexLen) {
 
     mpt.leafPathPrefixHexLen <== leafPathPrefixHexLen;
     for (var idx = 0; idx < maxLeafRlpHexLen; idx++) {
-	mpt.leafRlpHexs[idx] <== leafRlpHexs[idx];
+	    mpt.leafRlpHexs[idx] <== leafRlpHexs[idx];
     }
     for (var idx = 0; idx < maxDepth - 1; idx++) {
-	mpt.nodePathPrefixHexLen[idx] <== nodePathPrefixHexLen[idx];
-	for (var j = 0; j < maxBranchRlpHexLen; j++) {
-	    mpt.nodeRlpHexs[idx][j] <== nodeRlpHexs[idx][j];
-	}
-	mpt.nodeTypes[idx] <== nodeTypes[idx];
+	    mpt.nodePathPrefixHexLen[idx] <== nodePathPrefixHexLen[idx];
+        for (var j = 0; j < maxBranchRlpHexLen; j++) {
+            mpt.nodeRlpHexs[idx][j] <== nodeRlpHexs[idx][j];
+        }
+        mpt.nodeTypes[idx] <== nodeTypes[idx];
     }
     mpt.depth <== depth;
 
@@ -577,13 +592,13 @@ template EthTransactionProof(maxDepth, maxIndex, maxTxRlpHexLen) {
         tx_pf.blockRlpHexs[idx] <== blockRlpHexs[idx];
     }
     for (var idx = 0; idx < maxTxRlpHexLen; idx++) {
-	tx_pf.txRlpHexs[idx] <== txRlpHexs[idx];
+	    tx_pf.txRlpHexs[idx] <== txRlpHexs[idx];
     }
     for (var idx = 0; idx < maxDepth; idx++) {
-	tx_pf.keyFragmentStarts[idx] <== keyFragmentStarts[idx];
+	    tx_pf.keyFragmentStarts[idx] <== keyFragmentStarts[idx];
     }
     for (var idx = 0; idx < maxLeafRlpHexLen; idx++) {
-	tx_pf.leafRlpHexs[idx] <== leafRlpHexs[idx];
+	    tx_pf.leafRlpHexs[idx] <== leafRlpHexs[idx];
     }
     tx_pf.leafPathPrefixHexLen <== leafPathPrefixHexLen;
     
@@ -606,7 +621,7 @@ template EthTransactionProof(maxDepth, maxIndex, maxTxRlpHexLen) {
 
     var temp = 0;
     for (var idx = 0; idx < 8; idx++) {
-	temp = temp + tx_pf.dataHexs[idx] * (16 ** (7 - idx));
+	    temp = temp + tx_pf.dataHexs[idx] * (16 ** (7 - idx));
     }
     methodId <== isCall * temp;
 }

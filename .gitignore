@@ -1,3 +1,25 @@
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
+
+
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
@@ -13,3 +35,16 @@ node_modules
 tmp
 .yarn/cache
 build
+
+node_modules
+.env
+coverage
+coverage.json
+typechain
+typechain-types
+
+# Hardhat files
+cache
+artifacts
+
+
