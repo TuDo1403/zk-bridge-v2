@@ -78,12 +78,28 @@ interface ISNARKBridge {
     event ModeSwitched(address indexed operator, bool indexed relayerEnabled);
     event BlockHashesRelayed(address indexed relayer, uint256[] blockhashes);
 
+    /**
+     * @dev Allows the operator to update the validators.
+     * @param validators_ The new validators data
+     */
     function updateValidators(bytes calldata validators_) external;
 
+    /**
+     * @dev Allows the relayer to relay block hashes.
+     * @param blockhashes_ The block hashes to be relayed
+     * @notice The relayer role is only enabled when the relayers are enabled
+     */
     function relayBlockHashes(uint256[] calldata blockhashes_) external;
 
+    /**
+     * @dev Allows the operator to toggle the relayers.
+     */
     function toggleRelayer() external;
 
+    /**
+     * @dev Allows the operator to update the verifier contract.
+     * @param verifier_ The new verifier contract
+     */
     function updateVerifier(IVerifier verifier_) external;
 
     function deposit(
@@ -105,6 +121,10 @@ interface ISNARKBridge {
         uint256 nullifierHash_
     ) external view returns (bool);
 
+    /**
+     * @dev Returns the status of relayers
+     * @return bool indicating whether relayers are enabled or not
+     */
     function isRelayersEnabled() external view returns (bool);
 
     function isKnownValidators(

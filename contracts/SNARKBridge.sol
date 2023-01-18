@@ -27,7 +27,8 @@ import "oz-custom/contracts/oz-upgradeable/utils/introspection/ERC165CheckerUpgr
 
 /**
  * @title SNARKBridge
- * @author tudo.dev@gmail.com
+ * @author Tu Do
+ * @custom:security-contact tudo.dev@gmail.com
  * @dev The SNARKBridge contract acts as a bridge between 2 chains, allowing for the transfer of tokens between them.
  * @dev The contract uses a verifier contract to check the validity of the SNARK proofs.
  * @dev The contract can be initialized by passing the verifier contract, authority contract, source token contract and target token contract.
@@ -125,24 +126,16 @@ abstract contract SNARKBridge is
         emit ModeSwitched(_msgSender(), false);
     }
 
-    /**
-     * @dev Allows the operator to update the validators.
-     * @param validators_ The new validators data
-     */
+    /// @inheritdoc ISNARKBridge
     function updateValidators(
         bytes calldata validators_
     ) public virtual onlyRole(Roles.OPERATOR_ROLE) {
         bytes32 pointer = validators_.write();
-
         emit ValidatorsUpdated(_msgSender(), pointer, validators_);
         _validators = pointer;
     }
 
-    /**
-     * @dev Allows the relayer to relay block hashes.
-     * @param blockhashes_ The block hashes to be relayed
-     * @notice The relayer role is only enabled when the relayers are enabled
-     */
+    /// @inheritdoc ISNARKBridge
     function relayBlockHashes(
         uint256[] calldata blockhashes_
     ) external onlyRole(RELAYER_ROLE) whenNotPaused whenRelayersEnabled {
@@ -154,22 +147,16 @@ abstract contract SNARKBridge is
                 ++i;
             }
         }
-
         emit BlockHashesRelayed(_msgSender(), blockhashes_);
     }
 
-    /**
-     * @dev Allows the operator to toggle the relayers.
-     */
+    /// @inheritdoc ISNARKBridge
     function toggleRelayer() external onlyRole(Roles.OPERATOR_ROLE) {
         __relayersToggler ^= 1;
         emit ModeSwitched(_msgSender(), isRelayersEnabled());
     }
 
-    /**
-     * @dev Allows the operator to update the verifier contract.
-     * @param verifier_ The new verifier contract
-     */
+    /// @inheritdoc ISNARKBridge
     function updateVerifier(
         IVerifier verifier_
     ) external onlyRole(Roles.OPERATOR_ROLE) {
@@ -216,7 +203,7 @@ abstract contract SNARKBridge is
         _checkBlacklist(account);
         _onlyEOA(account);
 
-        // TODO: check targetBridge
+        // TODO: validate targetBridge address
         // if (targetBridge_ != targetBridge)
         //     revert SNARKBridge__UnknownBridgeContract();
         if (inputs_.token != targetToken)
@@ -260,10 +247,7 @@ abstract contract SNARKBridge is
         return __nullifierHashes.get(nullifierHash_);
     }
 
-    /**
-     * @dev Returns the status of relayers
-     * @return bool indicating whether relayers are enabled or not
-     */
+    /// @inheritdoc ISNARKBridge
     function isRelayersEnabled() public view returns (bool) {
         return __relayersToggler == __RELAYER_ENABLED;
     }
@@ -272,18 +256,6 @@ abstract contract SNARKBridge is
         uint256[2] memory preSealHash_,
         bytes calldata signature_
     ) public view virtual returns (bool);
-
-    function __isValidSnarkProofs(
-        bytes calldata proofs_,
-        SnarkInputs calldata inputs_
-    ) private view returns (bool) {
-        /// @dev parse struct to statically-sized array
-        uint256[7] memory pubSignals;
-        assembly {
-            pubSignals := inputs_
-        }
-        return verifier.verifyProof(proofs_, pubSignals);
-    }
 
     function __transferAsset(
         address token_,
@@ -340,6 +312,18 @@ abstract contract SNARKBridge is
             );
             return TokenType.ERC20;
         }
+    }
+
+    function __isValidSnarkProofs(
+        bytes calldata proofs_,
+        SnarkInputs calldata inputs_
+    ) private view returns (bool) {
+        /// @dev parse struct to statically-sized array
+        uint256[7] memory pubSignals;
+        assembly {
+            pubSignals := inputs_
+        }
+        return verifier.verifyProof(proofs_, pubSignals);
     }
 
     function __checkRelayersEnabled() private view {
