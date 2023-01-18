@@ -31,6 +31,12 @@ interface ISNARKBridge {
         uint256 preSealedBlockhashTail;
     }
 
+    /**
+     * @dev Emitted when validators are updated
+     * @param operator The address of the operator who initiated the update
+     * @param pointer The pointer to the new validators data
+     * @param validators The new validators data
+     */
     event ValidatorsUpdated(
         address indexed operator,
         bytes32 indexed pointer,
@@ -44,6 +50,12 @@ interface ISNARKBridge {
         uint256 indexed nullifierHash
     );
 
+    /**
+     * @dev Emitted when the verifier contract is updated
+     * @param operator The address of the operator who initiated the update
+     * @param from The old verifier contract
+     * @param to The new verifier contract
+     */
     event NewVerifier(
         address indexed operator,
         IVerifier indexed from,

@@ -25,6 +25,15 @@ import "oz-custom/contracts/oz-upgradeable/utils/Create2Upgradeable.sol";
 import "oz-custom/contracts/oz-upgradeable/utils/structs/BitMapsUpgradeable.sol";
 import "oz-custom/contracts/oz-upgradeable/utils/introspection/ERC165CheckerUpgradeable.sol";
 
+/**
+ * @title SNARKBridge
+ * @author tudo.dev@gmail.com
+ * @dev The SNARKBridge contract acts as a bridge between 2 chains, allowing for the transfer of tokens between them.
+ * @dev The contract uses a verifier contract to check the validity of the SNARK proofs.
+ * @dev The contract can be initialized by passing the verifier contract, authority contract, source token contract and target token contract.
+ * @dev The operator role is required to call updateValidators, toggleRelayer, and updateVerifier.
+ * @dev The contract can be used to update the validators, relay block hashes and toggle relayers.
+ */
 abstract contract SNARKBridge is
     ISNARKBridge,
     ManagerUpgradeable,
@@ -55,11 +64,6 @@ abstract contract SNARKBridge is
     BitMapsUpgradeable.BitMap private __nullifierHashes;
     BitMapsUpgradeable.BitMap private __verifiedTargetBlockHashes;
 
-    modifier nonZeroAddress(address addr_) {
-        __checkZeroAddress(addr_);
-        _;
-    }
-
     modifier whenRelayersEnabled() {
         __checkRelayersEnabled();
         _;
@@ -70,6 +74,13 @@ abstract contract SNARKBridge is
         _;
     }
 
+    /**
+     * @dev Initializes the contract with verifier, authority, source token and target token contracts.
+     * @param verifier_ The verifier contract
+     * @param authority_ The authority contract
+     * @param sourceToken_ The source token contract
+     * @param targetToken_ The target token contract
+     */
     function __SNARKBridge_init(
         IVerifier verifier_,
         IAuthorityUpgradeable authority_,
@@ -114,6 +125,10 @@ abstract contract SNARKBridge is
         emit ModeSwitched(_msgSender(), false);
     }
 
+    /**
+     * @dev Allows the operator to update the validators.
+     * @param validators_ The new validators data
+     */
     function updateValidators(
         bytes calldata validators_
     ) public virtual onlyRole(Roles.OPERATOR_ROLE) {
@@ -123,6 +138,11 @@ abstract contract SNARKBridge is
         _validators = pointer;
     }
 
+    /**
+     * @dev Allows the relayer to relay block hashes.
+     * @param blockhashes_ The block hashes to be relayed
+     * @notice The relayer role is only enabled when the relayers are enabled
+     */
     function relayBlockHashes(
         uint256[] calldata blockhashes_
     ) external onlyRole(RELAYER_ROLE) whenNotPaused whenRelayersEnabled {
@@ -138,11 +158,18 @@ abstract contract SNARKBridge is
         emit BlockHashesRelayed(_msgSender(), blockhashes_);
     }
 
+    /**
+     * @dev Allows the operator to toggle the relayers.
+     */
     function toggleRelayer() external onlyRole(Roles.OPERATOR_ROLE) {
         __relayersToggler ^= 1;
         emit ModeSwitched(_msgSender(), isRelayersEnabled());
     }
 
+    /**
+     * @dev Allows the operator to update the verifier contract.
+     * @param verifier_ The new verifier contract
+     */
     function updateVerifier(
         IVerifier verifier_
     ) external onlyRole(Roles.OPERATOR_ROLE) {
@@ -184,7 +211,7 @@ abstract contract SNARKBridge is
         SnarkInputs calldata inputs_,
         bytes calldata signatures_,
         bytes calldata snarkProofs_
-    ) external whenNotPaused {
+    ) external whenNotPaused whenRelayerDisabled {
         address account = _msgSender();
         _checkBlacklist(account);
         _onlyEOA(account);
@@ -233,6 +260,10 @@ abstract contract SNARKBridge is
         return __nullifierHashes.get(nullifierHash_);
     }
 
+    /**
+     * @dev Returns the status of relayers
+     * @return bool indicating whether relayers are enabled or not
+     */
     function isRelayersEnabled() public view returns (bool) {
         return __relayersToggler == __RELAYER_ENABLED;
     }
