@@ -1,31 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import "./internal-upgradeable/BaseUpgradeable.sol";
+import {Vault} from "./Vault.sol";
+
+import "oz-custom/contracts/presets-upgradeable/base/ManagerUpgradeable.sol";
 
 import "oz-custom/contracts/internal-upgradeable/ProtocolFeeUpgradeable.sol";
 import "oz-custom/contracts/internal-upgradeable/ProxyCheckerUpgradeable.sol";
 import "oz-custom/contracts/internal-upgradeable/FundForwarderUpgradeable.sol";
 
 import "./interfaces/ISNARKBridge.sol";
+import "oz-custom/contracts/internal-upgradeable/interfaces/IWithdrawableUpgradeable.sol";
 
 import "oz-custom/contracts/oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "oz-custom/contracts/oz-upgradeable/token/ERC721/IERC721Upgradeable.sol";
+import {IERC20PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC20/extensions/draft-IERC20PermitUpgradeable.sol";
+import {IERC721Upgradeable, IERC721PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC721/extensions/IERC721PermitUpgradeable.sol";
 import {IERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/IERC1155Upgradeable.sol"; //  TODO: update oz-custom
 
+import "./libraries/TokenType.sol";
+
+import "oz-custom/contracts/libraries/SigUtil.sol";
 import "oz-custom/contracts/libraries/SSTORE2.sol";
+import "oz-custom/contracts/oz-upgradeable/utils/Create2Upgradeable.sol";
 import "oz-custom/contracts/oz-upgradeable/utils/structs/BitMapsUpgradeable.sol";
 import "oz-custom/contracts/oz-upgradeable/utils/introspection/ERC165CheckerUpgradeable.sol";
 
 abstract contract SNARKBridge is
     ISNARKBridge,
-    BaseUpgradeable,
+    ManagerUpgradeable,
+    ProtocolFeeUpgradeable,
     ProxyCheckerUpgradeable,
     FundForwarderUpgradeable
 {
+    using SigUtil for bytes;
     using SSTORE2 for bytes;
     using ERC165CheckerUpgradeable for address;
     using BitMapsUpgradeable for BitMapsUpgradeable.BitMap;
+
+    /// @dev value is equal to keccak256("RELAYER_ROLE")
+    bytes32 public constant RELAYER_ROLE =
+        0xe2b7fb3b832174769106daebcfd6d1970523240dda11281102db9363b83b0dc4;
 
     uint256 private constant __RELAYER_ENABLED = 3;
     uint256 private constant __RELAYER_DISABLED = 2;
@@ -56,26 +70,36 @@ abstract contract SNARKBridge is
         _;
     }
 
-    function __SNARKBridgeBase_init(
-        ITreasury vault_,
+    function __SNARKBridge_init(
         IVerifier verifier_,
-        IAuthority authority_,
+        IAuthorityUpgradeable authority_,
         address sourceToken_,
         address targetToken_
     ) internal onlyInitializing {
+        __checkZeroAddress(targetToken_);
+        __checkZeroAddress(sourceToken_);
         if (!_isProxy(sourceToken_)) revert SNARKBridge__InvalidArguments();
 
-        __checkZeroAddress(sourceToken_);
-        __checkZeroAddress(targetToken_);
+        __Manager_init_unchained(authority_, 0);
+        __SNARKBridge_init_unchained(verifier_, targetToken_, sourceToken_);
 
-        address _vault = address(vault_);
-
-        __FundForwarder_init_unchained(_vault);
-        __Base_init_unchained(authority_, Roles.TREASURER_ROLE);
-        __SNARKBridgeBase_init_unchained(verifier_, targetToken_, sourceToken_);
+        __FundForwarder_init_unchained(
+            Create2Upgradeable.deploy(
+                0,
+                keccak256(
+                    abi.encode(
+                        address(this),
+                        block.chainid,
+                        sourceToken_,
+                        targetToken_
+                    )
+                ),
+                type(Vault).creationCode
+            )
+        );
     }
 
-    function __SNARKBridgeBase_init_unchained(
+    function __SNARKBridge_init_unchained(
         IVerifier verifier_,
         address sourceToken_,
         address targetToken_
@@ -101,7 +125,7 @@ abstract contract SNARKBridge is
 
     function relayBlockHashes(
         uint256[] calldata blockhashes_
-    ) external onlyRole(Roles.RELAYER_ROLE) whenNotPaused whenRelayersEnabled {
+    ) external onlyRole(RELAYER_ROLE) whenNotPaused whenRelayersEnabled {
         uint256 length = blockhashes_.length;
         for (uint256 i; i < length; ) {
             if (blockhashes_[i] == 0) revert SNARKBridge__InvalidArguments();
@@ -116,7 +140,6 @@ abstract contract SNARKBridge is
 
     function toggleRelayer() external onlyRole(Roles.OPERATOR_ROLE) {
         __relayersToggler ^= 1;
-
         emit ModeSwitched(_msgSender(), isRelayersEnabled());
     }
 
@@ -126,8 +149,6 @@ abstract contract SNARKBridge is
         emit NewVerifier(_msgSender(), verifier, verifier_);
         verifier = verifier_;
     }
-
-    function updateTreasury(ITreasury treasury_) external virtual override {}
 
     function deposit(
         address token_,
@@ -146,39 +167,60 @@ abstract contract SNARKBridge is
         __commitments.set(commitment_);
         emit Commited(account, commitment_);
 
-        __transferAsset(token_, account, vault, value_);
+        address _vault = vault;
+        __transferAsset(token_, account, _vault, value_, permission_);
+        if (
+            IWithdrawableUpgradeable(_vault).notifyERCTransfer(
+                token_,
+                abi.encode(value_),
+                abi.encode(account)
+            ) != IWithdrawableUpgradeable.notifyERCTransfer.selector
+        ) revert SNARKBridge__NotifyFailed();
 
         emit Deposited(account, token_, value_, commitment_);
     }
 
     function withdraw(
-        address token_,
-        address targetBridge_,
-        uint256 value_,
-        address receiver_,
-        uint256 nullifierHash_,
-        uint256[2] calldata preSealHash_,
-        bytes calldata signatures_
+        SnarkInputs calldata inputs_,
+        bytes calldata signatures_,
+        bytes calldata snarkProofs_
     ) external whenNotPaused {
         address account = _msgSender();
         _checkBlacklist(account);
         _onlyEOA(account);
 
+        // TODO: check targetBridge
         // if (targetBridge_ != targetBridge)
         //     revert SNARKBridge__UnknownBridgeContract();
-        if (isUsedNullifierHash(nullifierHash_))
+        if (inputs_.token != targetToken)
+            revert SNARKBridge__UnsupportedToken();
+        if (isUsedNullifierHash(inputs_.nullifierHash))
             revert SNARKBridge__AlreadyClaimed();
-        if (token_ != targetToken) revert SNARKBridge__UnsupportedToken();
+        if (
+            !isKnownValidators(
+                [
+                    inputs_.preSealedBlockhashHead,
+                    inputs_.preSealedBlockhashTail
+                ],
+                signatures_
+            )
+        ) revert SNARKBridge__InvalidBlockhashOrUnknownValidator();
+        if (!__isValidSnarkProofs(snarkProofs_, inputs_))
+            revert SNARKBrdige__InvalidSnarkProof();
 
-        if (!isKnownValidators(preSealHash_, signatures_))
-            revert SNARKBridge__InvalidBlockhashOrUnknownValidator();
-
-        __nullifierHashes.set(nullifierHash_);
-        emit NullifierHashUsed(account, nullifierHash_);
+        __nullifierHashes.set(inputs_.nullifierHash);
+        emit NullifierHashUsed(account, inputs_.nullifierHash);
 
         address _sourceToken = sourceToken;
-        __transferAsset(_sourceToken, vault, receiver_, value_);
-        emit Claimed(account, _sourceToken, value_);
+
+        IWithdrawableUpgradeable(vault).withdraw(
+            _sourceToken,
+            inputs_.receiver,
+            inputs_.value,
+            ""
+        );
+
+        emit Claimed(account, _sourceToken, inputs_.value);
     }
 
     function isCommited(uint256 commitment_) public view returns (bool) {
@@ -196,21 +238,42 @@ abstract contract SNARKBridge is
     }
 
     function isKnownValidators(
-        uint256[2] calldata preSealHash_,
+        uint256[2] memory preSealHash_,
         bytes calldata signature_
     ) public view virtual returns (bool);
+
+    function __isValidSnarkProofs(
+        bytes calldata proofs_,
+        SnarkInputs calldata inputs_
+    ) private view returns (bool) {
+        /// @dev parse struct to statically-sized array
+        uint256[7] memory pubSignals;
+        assembly {
+            pubSignals := inputs_
+        }
+        return verifier.verifyProof(proofs_, pubSignals);
+    }
 
     function __transferAsset(
         address token_,
         address from_,
         address to_,
-        uint256 value_
-    ) private {
-        if (token_.supportsInterface(type(IERC721Upgradeable).interfaceId))
+        uint256 value_,
+        Permission calldata permission_
+    ) private returns (uint256) {
+        if (token_.supportsInterface(type(IERC721Upgradeable).interfaceId)) {
+            if (IERC721Upgradeable(token_).getApproved(value_) != address(this))
+                IERC721PermitUpgradeable(token_).permit(
+                    address(this),
+                    value_,
+                    permission_.deadline,
+                    permission_.signature
+                );
             IERC721Upgradeable(token_).safeTransferFrom(from_, to_, value_);
-        else if (
+            return TokenType.ERC721;
+        } else if (
             token_.supportsInterface(type(IERC1155Upgradeable).interfaceId)
-        )
+        ) {
             IERC1155Upgradeable(token_).safeTransferFrom(
                 from_,
                 to_,
@@ -218,19 +281,34 @@ abstract contract SNARKBridge is
                 1,
                 ""
             );
-        else
+            return TokenType.ERC1155;
+        } else {
+            if (
+                IERC20Upgradeable(token_).allowance(from_, address(this)) <
+                value_
+            ) {
+                (bytes32 r, bytes32 s, uint8 v) = permission_
+                    .signature
+                    .splitSignature();
+                IERC20PermitUpgradeable(token_).permit(
+                    from_,
+                    address(this),
+                    value_,
+                    permission_.deadline,
+                    v,
+                    r,
+                    s
+                );
+            }
+
             _safeERC20TransferFrom(
                 IERC20Upgradeable(token_),
                 from_,
                 to_,
                 value_
             );
-
-        // IWithdrawable(_vault).notifyERCTransfer(
-        //     token_,
-        //     abi.encode(value_),
-        //     abi.encode(from_)
-        // );
+            return TokenType.ERC20;
+        }
     }
 
     function __checkRelayersEnabled() private view {

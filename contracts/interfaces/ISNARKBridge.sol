@@ -5,19 +5,30 @@ import "./IVerifier.sol";
 
 interface ISNARKBridge {
     error SNARKBridge__ZeroAddress();
-    error SNARKBrdige__InvalidProof();
+    error SNARKBridge__NotifyFailed();
     error SNARKBridge__UsedCommitment();
     error SNARKBridge__AlreadyClaimed();
     error SNARKBridge__RelayersEnabled();
     error SNARKBridge__UnsupportedToken();
     error SNARKBridge__InvalidArguments();
     error SNARKBridge__RelayersDisabled();
+    error SNARKBrdige__InvalidSnarkProof();
     error SNARKBridge__UnknownBridgeContract();
     error SNARKBridge__InvalidBlockhashOrUnknownValidator();
 
     struct Permission {
         uint256 deadline;
         bytes signature;
+    }
+
+    struct SnarkInputs {
+        address token;
+        uint256 value;
+        address receiver;
+        address targetBridge;
+        uint256 nullifierHash;
+        uint256 preSealedBlockhashHead;
+        uint256 preSealedBlockhashTail;
     }
 
     event ValidatorsUpdated(
@@ -71,13 +82,9 @@ interface ISNARKBridge {
     ) external;
 
     function withdraw(
-        address token_,
-        address targetBridge_,
-        uint256 value_,
-        address receiver_,
-        uint256 nullifierHash_,
-        uint256[2] calldata preSealHash_,
-        bytes calldata signatures_
+        SnarkInputs calldata inputs_,
+        bytes calldata signatures_,
+        bytes calldata snarkProofs_
     ) external;
 
     function isCommited(uint256 commitment_) external view returns (bool);
@@ -89,7 +96,7 @@ interface ISNARKBridge {
     function isRelayersEnabled() external view returns (bool);
 
     function isKnownValidators(
-        uint256[2] calldata preSealHash_,
+        uint256[2] memory preSealHash_,
         bytes calldata signature_
     ) external view returns (bool);
 }
