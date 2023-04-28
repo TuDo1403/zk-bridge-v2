@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import "./IVerifier.sol";
+import {IVerifier} from "./IVerifier.sol";
 
-interface ISNARKBridge {
+interface IMaximaBridgeBase {
     error SNARKBridge__ZeroAddress();
     error SNARKBridge__NotifyFailed();
     error SNARKBridge__UsedCommitment();

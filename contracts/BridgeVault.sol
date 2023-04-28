@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import "oz-custom/contracts/oz/access/Ownable.sol";
+import {Ownable} from "oz-custom/contracts/oz/access/Ownable.sol";
 import "oz-custom/contracts/internal/Withdrawable.sol";
 import "oz-custom/contracts/oz/utils/introspection/ERC165Checker.sol";
 

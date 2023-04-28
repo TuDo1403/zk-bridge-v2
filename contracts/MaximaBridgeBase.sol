@@ -1,46 +1,46 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import {Vault} from "./Vault.sol";
+import {Vault} from "./BridgeVault.sol";
 
-import "oz-custom/contracts/presets-upgradeable/base/ManagerUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "oz-custom/contracts/oz-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 
-import "oz-custom/contracts/internal-upgradeable/ProtocolFeeUpgradeable.sol";
-import "oz-custom/contracts/internal-upgradeable/ProxyCheckerUpgradeable.sol";
-import "oz-custom/contracts/internal-upgradeable/FundForwarderUpgradeable.sol";
+import {Create2Deployer} from "oz-custom/contracts/internal/DeterministicDeployer.sol";
+import {ProtocolFeeUpgradeable} from "oz-custom/contracts/internal-upgradeable/ProtocolFeeUpgradeable.sol";
+import {FundForwarderUpgradeable} from "oz-custom/contracts/internal-upgradeable/FundForwarderUpgradeable.sol";
+import {Roles, IAuthority, ManagerUpgradeable} from "oz-custom/contracts/presets-upgradeable/base/ManagerUpgradeable.sol";
 
-import "./interfaces/ISNARKBridge.sol";
-import "oz-custom/contracts/internal-upgradeable/interfaces/IWithdrawableUpgradeable.sol";
+import {IVerifier, IMaximaBridgeBase} from "./interfaces/IMaximaBridgeBase.sol";
+import {IWithdrawableUpgradeable} from "oz-custom/contracts/internal-upgradeable/interfaces/IWithdrawableUpgradeable.sol";
 
-import "oz-custom/contracts/oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import {IERC20PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC20/extensions/draft-IERC20PermitUpgradeable.sol";
-import {IERC721Upgradeable, IERC721PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC721/extensions/IERC721PermitUpgradeable.sol";
 import {IERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/IERC1155Upgradeable.sol"; //  TODO: update oz-custom
+import {IERC721Upgradeable, IERC721PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC721/extensions/IERC721PermitUpgradeable.sol";
+import {IERC20Upgradeable, IERC20PermitUpgradeable} from "oz-custom/contracts/oz-upgradeable/token/ERC20/extensions/draft-IERC20PermitUpgradeable.sol";
 
-import "./libraries/TokenType.sol";
+import {TokenType} from "./libraries/TokenType.sol";
 
-import "oz-custom/contracts/libraries/SigUtil.sol";
-import "oz-custom/contracts/libraries/SSTORE2.sol";
-import "oz-custom/contracts/oz-upgradeable/utils/Create2Upgradeable.sol";
-import "oz-custom/contracts/oz-upgradeable/utils/structs/BitMapsUpgradeable.sol";
-import "oz-custom/contracts/oz-upgradeable/utils/introspection/ERC165CheckerUpgradeable.sol";
+import {SigUtil} from "oz-custom/contracts/libraries/SigUtil.sol";
+import {SSTORE2} from "oz-custom/contracts/libraries/SSTORE2.sol";
+import {BitMapsUpgradeable} from "oz-custom/contracts/oz-upgradeable/utils/structs/BitMapsUpgradeable.sol";
+import {ERC165CheckerUpgradeable} from "oz-custom/contracts/oz-upgradeable/utils/introspection/ERC165CheckerUpgradeable.sol";
 
 /**
- * @title SNARKBridge
+ * @title MaximaBridgeBase
  * @author Tu Do
  * @custom:security-contact tudo.dev@gmail.com
- * @dev The SNARKBridge contract acts as a bridge between 2 chains, allowing for the transfer of tokens between them.
+ * @dev The MaximaBridgeBase contract acts as a bridge between 2 chains, allowing for the transfer of tokens between them.
  * @dev The contract uses a verifier contract to check the validity of the SNARK proofs.
  * @dev The contract can be initialized by passing the verifier contract, authority contract, source token contract and target token contract.
  * @dev The operator role is required to call updateValidators, toggleRelayer, and updateVerifier.
  * @dev The contract can be used to update the validators, relay block hashes and toggle relayers.
  */
-abstract contract SNARKBridge is
-    ISNARKBridge,
+abstract contract MaximaBridgeBase is
+    Create2Deployer,
+    IMaximaBridgeBase,
     ManagerUpgradeable,
     ProtocolFeeUpgradeable,
-    ProxyCheckerUpgradeable,
-    FundForwarderUpgradeable
+    FundForwarderUpgradeable,
+    ReentrancyGuardUpgradeable
 {
     using SigUtil for bytes;
     using SSTORE2 for bytes;
@@ -55,22 +55,24 @@ abstract contract SNARKBridge is
     uint256 private constant __RELAYER_DISABLED = 2;
 
     IVerifier public verifier;
+    address public treasury;
     address public sourceToken;
     address public targetToken;
 
     bytes32 internal _validators;
 
     uint256 private __relayersToggler;
+
     BitMapsUpgradeable.BitMap private __commitments;
     BitMapsUpgradeable.BitMap private __nullifierHashes;
     BitMapsUpgradeable.BitMap private __verifiedTargetBlockHashes;
 
-    modifier whenRelayersEnabled() {
+    modifier whenRelayersEnabled() virtual {
         __checkRelayersEnabled();
         _;
     }
 
-    modifier whenRelayerDisabled() {
+    modifier whenRelayerDisabled() virtual {
         __checkRelayerDisabled();
         _;
     }
@@ -84,20 +86,20 @@ abstract contract SNARKBridge is
      */
     function __SNARKBridge_init(
         IVerifier verifier_,
-        IAuthorityUpgradeable authority_,
+        IAuthority authority_,
         address sourceToken_,
         address targetToken_
     ) internal onlyInitializing {
-        __checkZeroAddress(targetToken_);
-        __checkZeroAddress(sourceToken_);
-        if (!_isProxy(sourceToken_)) revert SNARKBridge__InvalidArguments();
+        _validateAddress(targetToken_);
+        _validateAddress(sourceToken_);
 
+        __ReentrancyGuard_init_unchained();
         __Manager_init_unchained(authority_, 0);
         __SNARKBridge_init_unchained(verifier_, targetToken_, sourceToken_);
 
         __FundForwarder_init_unchained(
-            Create2Upgradeable.deploy(
-                0,
+            _deploy(
+                address(this).balance,
                 keccak256(
                     abi.encode(
                         address(this),
@@ -119,14 +121,16 @@ abstract contract SNARKBridge is
         sourceToken = sourceToken_;
         targetToken = targetToken_;
 
+        address sender = _msgSender();
+
         verifier = verifier_;
-        emit NewVerifier(_msgSender(), IVerifier(address(0)), verifier_);
+        emit NewVerifier(sender, IVerifier(address(0)), verifier_);
 
         __relayersToggler = __RELAYER_DISABLED;
-        emit ModeSwitched(_msgSender(), false);
+        emit ModeSwitched(sender, false);
     }
 
-    /// @inheritdoc ISNARKBridge
+    /// @inheritdoc IMaximaBridgeBase
     function updateValidators(
         bytes calldata validators_
     ) public virtual onlyRole(Roles.OPERATOR_ROLE) {
@@ -135,7 +139,7 @@ abstract contract SNARKBridge is
         _validators = pointer;
     }
 
-    /// @inheritdoc ISNARKBridge
+    /// @inheritdoc IMaximaBridgeBase
     function relayBlockHashes(
         uint256[] calldata blockhashes_
     ) external onlyRole(RELAYER_ROLE) whenNotPaused whenRelayersEnabled {
@@ -143,6 +147,7 @@ abstract contract SNARKBridge is
         for (uint256 i; i < length; ) {
             if (blockhashes_[i] == 0) revert SNARKBridge__InvalidArguments();
             __verifiedTargetBlockHashes.set(blockhashes_[i]);
+
             unchecked {
                 ++i;
             }
@@ -150,13 +155,13 @@ abstract contract SNARKBridge is
         emit BlockHashesRelayed(_msgSender(), blockhashes_);
     }
 
-    /// @inheritdoc ISNARKBridge
+    /// @inheritdoc IMaximaBridgeBase
     function toggleRelayer() external onlyRole(Roles.OPERATOR_ROLE) {
         __relayersToggler ^= 1;
         emit ModeSwitched(_msgSender(), isRelayersEnabled());
     }
 
-    /// @inheritdoc ISNARKBridge
+    /// @inheritdoc IMaximaBridgeBase
     function updateVerifier(
         IVerifier verifier_
     ) external onlyRole(Roles.OPERATOR_ROLE) {
@@ -172,7 +177,6 @@ abstract contract SNARKBridge is
     ) external whenNotPaused {
         address account = _msgSender();
         _checkBlacklist(account);
-        _onlyEOA(account);
 
         if (commitment_ == 0) revert SNARKBridge__InvalidArguments();
         if (isCommited(commitment_)) revert SNARKBridge__UsedCommitment();
@@ -181,7 +185,7 @@ abstract contract SNARKBridge is
         __commitments.set(commitment_);
         emit Commited(account, commitment_);
 
-        address _vault = vault;
+        address _vault = vault();
         __transferAsset(token_, account, _vault, value_, permission_);
         if (
             IWithdrawableUpgradeable(_vault).notifyERCTransfer(
@@ -201,7 +205,6 @@ abstract contract SNARKBridge is
     ) external whenNotPaused whenRelayerDisabled {
         address account = _msgSender();
         _checkBlacklist(account);
-        _onlyEOA(account);
 
         // TODO: validate targetBridge address
         // if (targetBridge_ != targetBridge)
@@ -227,7 +230,7 @@ abstract contract SNARKBridge is
 
         address _sourceToken = sourceToken;
 
-        IWithdrawableUpgradeable(vault).withdraw(
+        IWithdrawableUpgradeable(vault()).withdraw(
             _sourceToken,
             inputs_.receiver,
             inputs_.value,
@@ -247,7 +250,7 @@ abstract contract SNARKBridge is
         return __nullifierHashes.get(nullifierHash_);
     }
 
-    /// @inheritdoc ISNARKBridge
+    /// @inheritdoc IMaximaBridgeBase
     function isRelayersEnabled() public view returns (bool) {
         return __relayersToggler == __RELAYER_ENABLED;
     }
@@ -256,6 +259,10 @@ abstract contract SNARKBridge is
         uint256[2] memory preSealHash_,
         bytes calldata signature_
     ) public view virtual returns (bool);
+
+    function _validateAddress(address addr_) internal pure virtual {
+        if (addr_ == address(0)) revert SNARKBridge__ZeroAddress();
+    }
 
     function __transferAsset(
         address token_,
@@ -332,10 +339,6 @@ abstract contract SNARKBridge is
 
     function __checkRelayerDisabled() private view {
         if (isRelayersEnabled()) revert SNARKBridge__RelayersEnabled();
-    }
-
-    function __checkZeroAddress(address addr_) private pure {
-        if (addr_ == address(0)) revert SNARKBridge__ZeroAddress();
     }
 
     uint256[41] private __gap;

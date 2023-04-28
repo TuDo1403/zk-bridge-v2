@@ -1,99 +1,60 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import "oz-custom/contracts/oz-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "oz-custom/contracts/oz-upgradeable/security/PausableUpgradeable.sol";
-import "oz-custom/contracts/internal-upgradeable/ProxyCheckerUpgradeable.sol";
-import "oz-custom/contracts/internal-upgradeable/BlacklistableUpgradeable.sol";
-import "oz-custom/contracts/oz-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import {Create2Deployer} from "oz-custom/contracts/internal/DeterministicDeployer.sol";
 
-import "./libraries/Roles.sol";
-import "./interfaces/IAuthority.sol";
+import {Treasury} from "oz-custom/contracts/presets-upgradeable/Treasury.sol";
+import {Roles, AuthorityUpgradeable} from "oz-custom/contracts/presets-upgradeable/AuthorityUpgradeable.sol";
 
-contract Authority is
-    IAuthority,
-    UUPSUpgradeable,
-    PausableUpgradeable,
-    ProxyCheckerUpgradeable,
-    BlacklistableUpgradeable,
-    AccessControlEnumerableUpgradeable
-{
-    /// @dev value is equal to keccak256("Authority_v1")
-    bytes32 public constant VERSION =
-        0x095dd5e04e0f3f5bce98e4ee904d9f7209827187c4201f036596b2f7fdd602e7;
-    mapping(uint256 => address) phienban;
+contract MaximaAuthority is Create2Deployer, AuthorityUpgradeable {
+    function initialize(
+        address admin_,
+        bytes calldata data_,
+        bytes32[] calldata roles_,
+        address[] calldata operators_
+    ) external initializer {
+        __MaximaAuthority_init_unchained();
+        __Authority_init(admin_, data_, operators_, roles_);
+    }
 
-    function init() external initializer {
-        __Pausable_init_unchained();
-
-        address sender = _msgSender();
-
-        _grantRole(DEFAULT_ADMIN_ROLE, sender);
-
-        _grantRole(Roles.SIGNER_ROLE, sender);
-        _grantRole(Roles.PAUSER_ROLE, sender);
-        _grantRole(Roles.MINTER_ROLE, sender);
-        _grantRole(Roles.OPERATOR_ROLE, sender);
-        _grantRole(Roles.UPGRADER_ROLE, sender);
-
-        _setRoleAdmin(Roles.PAUSER_ROLE, Roles.OPERATOR_ROLE);
+    function __MaximaAuthority_init_unchained() internal onlyInitializing {
         _setRoleAdmin(Roles.MINTER_ROLE, Roles.OPERATOR_ROLE);
     }
 
-    function setRoleAdmin(
-        bytes32 role,
-        bytes32 adminRole
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setRoleAdmin(role, adminRole);
+    function _deployDefaultTreasury(
+        address admin_,
+        bytes memory
+    ) internal override returns (address) {
+        return
+            _deploy(
+                address(this).balance,
+                keccak256(abi.encode(admin_, address(this), VERSION)),
+                abi.encodePacked(
+                    type(Treasury).creationCode,
+                    abi.encode(address(this), "MAXIMA_MAIN_VAULT")
+                )
+            );
     }
 
-    function requestAccess(bytes32 role) external whenNotPaused {
-        address origin = _txOrigin();
-        _checkRole(Roles.OPERATOR_ROLE, origin);
-
-        address sender = _msgSender();
-        _onlyProxy(sender, origin);
-
-        _grantRole(Roles.PROXY_ROLE, sender);
-        if (role != 0) _grantRole(role, sender);
-
-        emit ProxyAccessGranted(sender);
+    function safeRecoverHeader() public pure override returns (bytes memory) {
+        /// @dev value is equal keccak256("SAFE_RECOVER_HEADER")
+        return
+            bytes.concat(
+                bytes32(
+                    0x556d79614195ebefcc31ab1ee514b9953934b87d25857902370689cbd29b49de
+                )
+            );
     }
 
-    function pause() external onlyRole(Roles.PAUSER_ROLE) {
-        _pause();
+    function safeTransferHeader() public pure override returns (bytes memory) {
+        /// @dev value is equal keccak256("SAFE_TRANSFER")
+        return
+            bytes.concat(
+                bytes32(
+                    0xc9627ddb76e5ee80829319617b557cc79498bbbc5553d8c632749a7511825f5d
+                )
+            );
     }
 
-    function unpause() external onlyRole(Roles.PAUSER_ROLE) {
-        _unpause();
-    }
-
-    function paused()
-        public
-        view
-        override(IAuthority, PausableUpgradeable)
-        returns (bool)
-    {
-        return PausableUpgradeable.paused();
-    }
-
-    function setUserStatus(
-        address account_,
-        bool status_
-    )
-        external
-        override(BlacklistableUpgradeable, IBlacklistableUpgradeable)
-        whenPaused
-        onlyRole(Roles.PAUSER_ROLE)
-    {
-        _setUserStatus(account_, status_);
-        if (status_) emit Blacklisted(account_);
-        else emit Whitelisted(account_);
-    }
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal virtual override onlyRole(Roles.UPGRADER_ROLE) {}
-
-    uint256[46] private __gap;
+    uint256[50] private __gap;
 }
